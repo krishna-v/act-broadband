@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #PORTALPAGE="http://portal.actcorp.in/web/blr/home"
-PORTALPAGE="https://selfcare.actcorp.in/web/blr/home"
+PORTALPAGE="https://selfcare.actcorp.in/web"
 PORTALFILE="/tmp/actportal.html"
 OUTFILE="/tmp/act_login.html"
 UID_NAME="_login_WAR_BeamPromotionalNDownloadsportlet_uname"
@@ -38,6 +38,11 @@ processargs() {
 			PASSWORD=$2
 			shift
 		;;
+		-l|--location)
+                        LOCATION=$2
+                        shift
+                ;;
+
 		esac
 		shift
 	done
@@ -45,9 +50,14 @@ processargs() {
 
 processargs $*
 
+if [[ -z ${ACT_IF} || -z ${USERID} || -z ${PASSWORD} || -z ${LOCATION} ]]; then
+        echo "Please ensure ACT_IF, USERID, PASSWORD and LOCATION are set."
+        exit 1
+fi
+
 IPADDR=$(ifconfig ${ACT_IF} | grep 'inet addr' | cut -d':' -f 2 | cut -d' ' -f 1)
 
-curl --silent -o ${PORTALFILE} ${PORTALPAGE}
+curl --silent -o ${PORTALFILE} "${PORTALPAGE}/${LOCATION}/home"
 URL=$(egrep '?p_auth=' ${PORTALFILE} | egrep 'log(in|out)' | cut -d'"' -f2)
 vprint "URL is $URL"
 
