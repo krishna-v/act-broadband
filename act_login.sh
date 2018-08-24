@@ -55,7 +55,9 @@ if [[ -z ${ACT_IF} || -z ${USERID} || -z ${PASSWORD} || -z ${LOCATION} ]]; then
         exit 1
 fi
 
-IPADDR=$(ifconfig ${ACT_IF} | grep 'inet addr' | cut -d':' -f 2 | cut -d' ' -f 1)
+#IPADDR=$(ifconfig ${ACT_IF} | grep 'inet addr' | cut -d':' -f 2 | cut -d' ' -f 1)
+IPADDR=$(ifconfig ${ACT_IF} | grep 'inet ' | awk '{ print $2 }')
+
 
 curl --silent -o ${PORTALFILE} "${PORTALPAGE}/${LOCATION}/home"
 URL=$(egrep '?p_auth=' ${PORTALFILE} | egrep 'log(in|out)' | cut -d'"' -f2)
