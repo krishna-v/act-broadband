@@ -64,7 +64,7 @@ if [[ -z ${ACT_IF} || -z ${USERID} || -z ${PASSWORD} || -z ${LOCATION} ]]; then
 fi
 
 #IPADDR=$(ifconfig ${ACT_IF} | grep 'inet addr' | cut -d':' -f 2 | cut -d' ' -f 1)
-IPADDR=$(ifconfig enp2s0 | grep 'inet ' | awk '{ print $2 }')
+IPADDR=$(ifconfig ${ACT_IF} | grep 'inet ' | awk '{ print $2 }')
 vprint "Interface: $ACT_IF. IP: $IPADDR"
 
 curl --silent -o ${PORTALFILE} "${PORTALPAGE}/${LOCATION}/home"
