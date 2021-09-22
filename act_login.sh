@@ -1,9 +1,7 @@
 #!/bin/bash
 
 
-#PORTALPAGE="http://portal.actcorp.in/web/blr/home"
-#PORTALPAGE="https://selfcare.actcorp.in/web/blr/home"
-PORTALPAGE="https://selfcare.actcorp.in/web"
+ACTHOST="selfcare.actcorp.in"
 PORTALFILE="/tmp/actportal.html"
 OUTFILE="/tmp/act_login.html"
 UID_NAME="_login_WAR_BeamPromotionalNDownloadsportlet_uname"
@@ -63,12 +61,20 @@ if [[ -z ${ACT_IF} || -z ${USERID} || -z ${PASSWORD} || -z ${LOCATION} ]]; then
 	exit 1
 fi
 
-#IPADDR=$(ifconfig ${ACT_IF} | grep 'inet addr' | cut -d':' -f 2 | cut -d' ' -f 1)
+SILENTFLAG="--silent"
+if [ ${VERBOSE:-0} == 1 ]; then
+	SILENTFLAG=""
+fi
+
 IPADDR=$(ifconfig ${ACT_IF} | grep 'inet ' | awk '{ print $2 }')
 vprint "Interface: $ACT_IF. IP: $IPADDR"
 
-curl --silent -o ${PORTALFILE} "${PORTALPAGE}/${LOCATION}/home"
-URL=$(egrep '?p_auth=' ${PORTALFILE} | egrep 'log(in|out)' | cut -d'"' -f2)
+PORTALURL="https://${ACTHOST}/web/${LOCATION}/home"
+vprint "Fetching $PORTALURL into $PORTALFILE" 
+
+curl $SILENTFLAG -o ${PORTALFILE} "${PORTALURL}"
+
+URL=$(egrep --text '?p_auth=' ${PORTALFILE} | egrep 'log(in|out)' | cut -d'"' -f2)
 vprint "Login URL is $URL"
 
 if [ -z "$URL" ]; then
@@ -91,10 +97,11 @@ if [ ${LOGGED_IN} == 1 ]; then
 fi
 
 vprint "Logging in"
-curl --silent --data "${IP_NAME}=${IPADDR}&${UID_NAME}=${USERID}&${PWD_NAME}=${PASSWORD}" -o ${OUTFILE} ${URL}
+curl $SILENTFLAG --data "${IP_NAME}=${IPADDR}&${UID_NAME}=${USERID}&${PWD_NAME}=${PASSWORD}" -o ${OUTFILE} ${URL}
 
-grep -q 'You are logged in as' ${OUTFILE}
+grep --text -q 'You are logged in as' ${OUTFILE}
 LOGIN_SUCCESS=$?
 
 vprint "Login succeeded: ${state[$LOGIN_SUCCESS]}"
 exit $LOGIN_SUCCESS
+
