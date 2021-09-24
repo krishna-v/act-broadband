@@ -12,22 +12,17 @@ Usage information is sometimes buggy and may not be retrieved consistently.
 Suggestions welcome to improve.
 '''
 
+import argparse
 from bs4 import BeautifulSoup
 from http.cookiejar import CookieJar
 from urllib import request, parse
 import json
 
-# Important: Change this to your city code.
-city = "blr"
-
-
-portalurl = f"https://selfcare.actcorp.in/group/{city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml"
-
-def get_postdata(page_id, viewstate):
+def get_postdata(page_id, context):
     data_ = {
         "_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35": "_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35",
-        f"javax.faces.encodedURL": "https://selfcare.actcorp.in/group/{city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml",
-        "javax.faces.ViewState":   viewstate,
+        f"javax.faces.encodedURL": "https://selfcare.actcorp.in/group/{context.city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml",
+        "javax.faces.ViewState":   context.viewstate,
         "javax.faces.source":  f"_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35:j_idt{page_id}",
         "javax.faces.partial.event":   "click",
         "javax.faces.partial.execute": f"_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35:j_idt{page_id} @component",
@@ -41,17 +36,18 @@ def get_postdata(page_id, viewstate):
     return parse.urlencode(data_).encode('UTF-8')
 
 
-def write_html(filename, data):
+def write_file(filename, data):
     f = open(filename, "w")
-    f.write(data.prettify())
+    f.write(data)
     f.close()
 
 
 def get_acct_info(opener, context):
-    accountpage = f"https://selfcare.actcorp.in/group/{city}/myaccount"
+    accountpage = f"https://selfcare.actcorp.in/group/{context.city}/myaccount"
     page = opener.open(accountpage)
     soup = BeautifulSoup(page.read(), features="lxml")
-    # write_html("acct_info.html", soup)
+    if context.debug > 1:
+        write_file("acct_info.html", soup.prettify())
 
     acct_info = {}
     details = soup.find(id="_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt59_body").find('tbody').find_all('tr')
@@ -62,16 +58,16 @@ def get_acct_info(opener, context):
         label = label.strip().lower()
         data = row.find('td', {'class' : "col2"}).get_text().strip()
         acct_info[label] =  data
-    viewstate = soup.find(id="javax.faces.ViewState").get('value')
-    context['viewstate'] = viewstate
+    context.viewstate = soup.find(id="javax.faces.ViewState").get('value')
     return acct_info
 
 
 def get_package_info(opener, context):
     page_id = 39
-    page = opener.open(portalurl, data=get_postdata(page_id, context['viewstate']))
+    page = opener.open(context.portalurl, data=get_postdata(page_id, context))
     soup = BeautifulSoup(page.read(), features="lxml")
-    # write_html("pkg_info.html", soup)
+    if context.debug > 1:
+        write_file("pkg_info.html", soup.prettify())
 
     pkg_info = {}
     details = soup.find(id="_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt168:j_idt170_body").find('tbody').find_all('tr')
@@ -87,15 +83,19 @@ def get_package_info(opener, context):
 
 def get_usage_info(opener, context):
     page_id = 43
-    page = opener.open(portalurl, data=get_postdata(page_id, context['viewstate']))
+    page = opener.open(context.portalurl, data=get_postdata(page_id, context))
     soup = BeautifulSoup(page.read(), features="lxml")
-    # write_html("usage_info.html", soup)
+    if context.debug > 1:
+        write_file("usage_info.html", soup.prettify())
 
     usage_info = {}
     usage_details = []
     usage_total = {}
     usage_tbl = soup.find(id="_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt310:j_idt328:tb")
-    if usage_tbl != None:
+    if usage_tbl == None:
+        if context.debug:
+            print("Failed to fetch usage detail information. Will not populate this section.")
+    else:
         details = usage_tbl.find_all('tr')
         for row in details:
             dtl_row = {}
@@ -109,7 +109,10 @@ def get_usage_info(opener, context):
         usage_info['details'] = usage_details
 
     total_tbl = soup.find(id="_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt310:total")
-    if total_tbl != None:
+    if total_tbl == None:
+        if context.debug:
+            print("Failed to fetch usage total information. Will not populate this section.")
+    else:
         totals = total_tbl.find_all('td')
         usage_total['total_upload'] = totals[1].get_text().strip()
         usage_total['total_download'] = totals[3].get_text().strip()
@@ -120,10 +123,26 @@ def get_usage_info(opener, context):
     
 
 if __name__ == "__main__":
-    context = {}
+
+    parser = argparse.ArgumentParser(description='Get some information for current ACT Broadband account.')
+    parser.add_argument('-d', '--debug', action='count', default=0, help='debug flag, repeat for more debuggging (e.g. -ddd = debug level 3.)')
+    parser.add_argument('-c', '--city', default='blr', help='your ACT broadband city code (default: blr)')
+    parser.add_argument('-u', '--usage', action='store_true', help='retrieve detailed usage info')
+    parser.add_argument('-o', '--output', default=None, help='output to file instead of stdout')
+    context = parser.parse_args()
+    context.portalurl = f"https://selfcare.actcorp.in/group/{context.city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml"
+
+    if context.debug:
+        print("Program Context: ", context)
+
     act_info = {}
     opener = request.build_opener(request.HTTPCookieProcessor(CookieJar()))
     act_info['account_info'] = get_acct_info(opener, context)
     act_info['package_info'] = get_package_info(opener, context)
-    act_info['usage_info'] = get_usage_info(opener, context)
-    print(json.dumps(act_info, indent=4))
+    if context.usage:
+        act_info['usage_info'] = get_usage_info(opener, context)
+
+    if context.output != None:
+       write_file(context.output, json.dumps(act_info, indent=4)) 
+    else:
+        print(json.dumps(act_info, indent=4))
