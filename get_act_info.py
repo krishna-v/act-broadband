@@ -21,7 +21,7 @@ import json
 def get_postdata(page_id, context):
     data_ = {
         "_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35": "_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35",
-        f"javax.faces.encodedURL": "https://selfcare.actcorp.in/group/{context.city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml",
+        "javax.faces.encodedURL": f"https://selfcare.actcorp.in/group/{context.city}/myaccount?p_p_id=ACTMyAccount_WAR_ACTMyAccountportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=3&p_p_col_pos=1&_ACTMyAccount_WAR_ACTMyAccountportlet__jsfBridgeAjax=true&_ACTMyAccount_WAR_ACTMyAccountportlet__facesViewIdResource=%2FWEB-INF%2FPages%2FaccountView%2FaccountView.xhtml",
         "javax.faces.ViewState":   context.viewstate,
         "javax.faces.source":  f"_ACTMyAccount_WAR_ACTMyAccountportlet_:j_idt35:j_idt{page_id}",
         "javax.faces.partial.event":   "click",
