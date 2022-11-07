@@ -18,6 +18,7 @@ import base64
 import json
 from configparser import ConfigParser
 import argparse
+from urllib.parse import unquote
 import netifaces as ni
 from Cryptodome.Cipher import AES
 from Cryptodome.Util.Padding import pad, unpad
@@ -86,7 +87,7 @@ def encrypt(data):
 def decrypt(data):
     ''' decrypt a piece of data'''
     cipher = get_cipher()
-    cyphertext = base64.b64decode(data)
+    cyphertext = base64.b64decode(unquote(data))
     plaintext = unpad(cipher.decrypt(cyphertext), AES.block_size)
     return plaintext.decode('utf-8')
 
@@ -243,8 +244,10 @@ def user_info(silent):
         retdata = response.json()
         globalvars['city'] = retdata['city']
         globalvars['b64phone'] = retdata['cellulerPhoneNo']
-        #retdata['streetAddress'] = decrypt(retdata['streetAddress'])
-        #retdata['secAddress'] = decrypt(retdata['secAddress'])
+        retdata['userId'] = decrypt(retdata['userId'])
+        retdata['accountNo'] = decrypt(retdata['accountNo'])
+        retdata['streetAddress'] = decrypt(retdata['streetAddress'])
+        retdata['secAddress'] = decrypt(retdata['secAddress'])
         retdata['emailAddress'] = decrypt(retdata['emailAddress'])
         retdata['fullName'] = decrypt(retdata['fullName'])
         retdata['cellulerPhoneNo'] = decrypt(retdata['cellulerPhoneNo'])
