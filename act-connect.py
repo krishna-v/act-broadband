@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 
 '''
-act-connet.py
+act-connect.py
 Author: Krishna V
 https://github/com/krishna-v/act-broadband/act-connect.py
 
-Description: Script to interact with the new version portal of ACT Broadband
-(circa Nov' 2022) 
-
+Description: Script to interact with the new ACT Broadband portal
+(circa Nov 2022 onwards)
 act-connect.py -h for usage.
 '''
 
@@ -55,7 +54,7 @@ conf = {}
 def dprint(lvl, *args, **kwargs):
     ''' print(or not) based on verbosity level '''
     if lvl <= globalvars['verbosity']:
-        print(*args, **kwargs)
+        print(f"{time.ctime()}", *args, **kwargs)
 
 def load_conf():
     '''
@@ -96,7 +95,10 @@ def do_post(url, data, cookies_, headers_):
     return requests.post(url, data=data, cookies=cookies_, headers=headers_)
 
 def scrape_homepage():
-    ''' extract cookie and the name of the .js file containing the crypto keys from the ACT portal. '''
+    '''
+    extract info from the ACT portal home page.
+    This includes a cookie and the name of the .js file containing  crypto keys.
+    '''
     url = f"{ACT_BASEURL}/home"
     response = requests.get(url, headers=headers)
     dprint(1, f"{url}: Status {response.status_code}")
@@ -158,7 +160,10 @@ def initialize():
     load_token()
 
 def check_valid_user():
-    ''' check if user is valid. the ACT portal does this before login, but it doesn't appear necessary '''
+    '''
+    check if user is valid. the ACT portal does this before login,
+    but it doesn't appear necessary.
+    '''
     url = f"{ACT_BASEURL}/v1/subscriberdetails/profile/checkValidUser"
     data = { "userId": f"{globalvars['b64user']}" }
     response = do_post(url, json.dumps(data), cookies, headers)
@@ -219,15 +224,48 @@ def authenticate():
             tk.write(jwtToken.encode('utf-8'))
     return response.status_code
 
-def get_token():
+def refresh_token():
+    ''' Refresh the JWT token. This is a GET call. '''
+    url = f"{ACT_BASEURL}/v1/jwt/refreshtoken"
+    req_headers = headers.copy()
+    req_headers['Authorization'] = f"Bearer {globalvars['jwtToken']}"
+    req_headers['isRefreshToken'] = "true"
+    response = requests.get(url, cookies=cookies, headers=req_headers)
+    dprint(1, f"{url}: Status {response.status_code}")
+    if response.status_code == 200:
+        retdata = response.json()
+        dprint(2, retdata)
+        jwtToken = retdata['jwtToken']
+        plain_authkey = globalvars['authkey']
+        output = jwt.decode(jwtToken, plain_authkey,
+                    algorithms=["HS256", "HS384", "HS512"],
+                    options={ "verify_signature": False })
+        dprint(2, output)
+        globalvars['jwtToken'] = jwtToken
+        globalvars['jwt_exp'] = output['exp']
+        with open(ACT_TOKENFILE, 'wb') as tk:
+            tk.write(jwtToken.encode('utf-8'))
+    return response.status_code
+
+def fetch_token(force_refresh=False):
     '''
     check if we have a valid token and return it,
-    else call authenticate to get a fresh one.
+    else call authenticate or refresh_token to get a fresh one.
     '''
     now = int(time.time())
-    if globalvars.get('jwt_exp', 0) < now + 30:
-        authenticate()
+    expiry = globalvars.get('jwt_exp', 0)
+    retcode = 200
+    if expiry < now + 2:
+        retcode =  authenticate()
+    elif expiry < now + 30 or force_refresh is True:
+        retcode = refresh_token()
+    return retcode
+
+def get_token(force_refresh=False):
+    ''' Do a fetch_token and then return the stored value '''
+    fetch_token(force_refresh)
     return globalvars['jwtToken']
+
 
 def user_info(silent):
     '''
@@ -328,21 +366,37 @@ def agreement_info():
         print(retdata)
     return response.status_code
 
+def do_service_loop(sleep_time=120):
+    '''
+    Login and then continuously refresh JWT Token,
+    similar to how the ACT homepage works.
+    This method is compatible with running as a systemd service.
+    '''
+    retcode = login_by_userid()
+    while retcode == 200:
+        retcode = fetch_token(force_refresh=True)
+        time.sleep(sleep_time)
+    return retcode
+
 def main():
     ''' main. Parse arguments and execute the appropriate functions '''
-    parser = argparse.ArgumentParser(description='Interact with ACT Broadband')
+    parser = argparse.ArgumentParser(description='Interact with ACT Broadband Service')
     parser.add_argument('-v', '--verbose', action='count', default=0,
-                            help='Be verbose. Repeat for even more verbosity (e.g. -vvv')
+                    help='Be verbose. Repeat for even more verbosity (e.g. -vvv)')
     parser.add_argument('-c', '--check', action='store_true',
-                            help='check if user is valid')
+                    help='check if user is valid')
     parser.add_argument('-l', '--login', action='store_true',
-                            help='Log in to ACT Broadband account')
+                    help='Log in to ACT Broadband account')
+    parser.add_argument('-r', '--refresh', action='store_true',
+                    help='Refresh JWT Token, logging in if required.')
     parser.add_argument('-i', '--info', action='store_true',
-                            help='Retrieve Account User Information')
+                    help='Retrieve Account User Information')
     parser.add_argument('-u', '--usage', action='store_true',
-                            help='Retrieve Usage Details')
+                    help='Retrieve Usage Details')
     parser.add_argument('-p', '--plan', action='store_true',
-                            help='Retrieve Plan Details')
+                    help='Retrieve Plan Details')
+    parser.add_argument('-S', '--service', action='store_true',
+                    help='Run continuously (systemd service compatible)')
     args = parser.parse_args()
     globalvars['verbosity'] = args.verbose
 
@@ -363,11 +417,18 @@ def main():
     if args.info:
         user_info(0)
 
+    if args.refresh:
+        get_token(force_refresh=True)
+
     if args.usage:
         usage_details()
 
     if args.plan:
         agreement_info()
+
+    if args.service:
+        retcode = do_service_loop()
+        dprint(1, f"Service loop exited with retcode {retcode}")
 
 if __name__ == "__main__":
     main()
