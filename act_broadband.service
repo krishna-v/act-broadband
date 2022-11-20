@@ -1,0 +1,11 @@
+[Unit]
+Description=ACT Broadband Service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/act_broadband.py -v -S
+
+[Install]
+WantedBy=multi-user.target
