@@ -17,22 +17,29 @@ import base64
 import json
 from configparser import ConfigParser
 import argparse
-from urllib.parse import unquote
+import urllib.parse as urlparse
 import netifaces as ni
-from Cryptodome.Cipher import AES
-from Cryptodome.Util.Padding import pad, unpad
+try:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import pad, unpad
+except ImportError:
+    from Cryptodome.Cipher import AES
+    from Cryptodome.Util.Padding import pad, unpad
 import jwt
 import requests
 
 class ACTConnection:
     '''
     Class that encapsulates all ACT broadband connection functionality.
-    The _main() method in this file shows how to use it, and allows execution of all key
-    functions from the command-line.
+    The _main() method in this file shows how to use it,
+    and allows execution of all key functions from the command-line.
     '''
     ACT_BASEURL = "https://selfcare.actcorp.in"
     ACT_TOKENFILE = "/tmp/act_token"
     CONF_FILE = "/etc/actbroadband/act.conf"
+    FALLBACK_KEY = "IJ&Kl$!QV#?NwG@D"
+    FALLBACK_IV = "QV4wX2nxCsNxCJHD"
+    FALLBACK_AUTHKEY = "selfcare@1234"
 
     headers = {
         'Accept': 'application/json, text/plain, */*',
@@ -46,7 +53,9 @@ class ACTConnection:
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36',
+        'User-Agent':  ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/107.0.0.0 Safari/537.36'),
         'ngsw-bypass': 'true',
         'sec-ch-ua': '"Google Chrome";v="107", "Chromium";v="107", "Not=A?Brand";v="24"',
         'sec-ch-ua-mobile': '?0',
@@ -73,7 +82,7 @@ class ACTConnection:
     def _load_conf(self):
         '''
         Load configuration file /etc/actbroadband/act.conf, containing username and password.
-        Supports the old sectionless conf format used by act_login.sh, so this method is pretty hacky.
+        Supports the sectionless conf format used by act_login.sh, so this method is pretty hacky.
         '''
         parser = ConfigParser()
         with open(self.CONF_FILE, 'rb') as cfg:
@@ -99,7 +108,7 @@ class ACTConnection:
     def _decrypt(self, data):
         ''' decrypt a piece of data'''
         cipher = self.get_cipher()
-        cyphertext = base64.b64decode(unquote(data))
+        cyphertext = base64.b64decode(urlparse.unquote(data))
         plaintext = unpad(cipher.decrypt(cyphertext), AES.block_size)
         return plaintext.decode('utf-8')
 
@@ -129,18 +138,33 @@ class ACTConnection:
         self._dprint(1, f"{url}: Status {response.status_code}")
         if response.status_code == 200:
             retdata = response.text
-            p_match = re.search('this.iv="(.+?)"', retdata)
+            # p_match = re.search('this.iv="(.+?)"', retdata)
+            p_match = re.search('this.firstAuto="(.+?)"', retdata)
             if p_match:
-                self._dprint(3, "IV:", p_match.group(1))
-                self.rt_vars['iv'] = p_match.group(1)
-            p_match = re.search('this.secretKey="(.+?)"', retdata)
+                iv = p_match.group(1)[:-1]
+                self._dprint(3, "IV:", iv)
+                self.rt_vars['iv'] = iv
+            else:
+                self._dprint(1, f"{url}: Could not find IV. Using fallback value!")
+                self.rt_vars['iv'] = self.FALLBACK_IV
+
+            # p_match = re.search('this.secretKey="(.+?)"', retdata)
+            p_match = re.search('this.lastAuto="(.+?)"', retdata)
             if p_match:
-                self._dprint(3, "SecretKey:", p_match.group(1))
-                self.rt_vars['key'] = p_match.group(1)
+                key = p_match.group(1)[:-2]
+                self._dprint(3, "SecretKey:", key)
+                self.rt_vars['key'] = key
+            else:
+                self._dprint(1, f"{url}: Could not find Encryption Key. Using fallback value!")
+                self.rt_vars['key'] = self.FALLBACK_KEY
+
             p_match = re.search(r'authKey:this.service.encrypt\("(.+?)"\)', retdata)
             if p_match:
                 self._dprint(3, "AuthKey:", p_match.group(1))
                 self.rt_vars['authkey'] = p_match.group(1)
+            else:
+                self._dprint(1, f"{url}: Could not find Auth Key. Using fallback value!")
+                self.rt_vars['authkey'] = self.FALLBACK_AUTHKEY
 
     def _load_token(self):
         ''' load previously saved JWT token from local file '''
@@ -274,7 +298,7 @@ class ACTConnection:
         retcode = 200
         if expiry < now + 2:
             retcode =  self.authenticate()
-        elif expiry < now + 30 or force_refresh is True:
+        elif force_refresh or expiry < now + 30:
             retcode = self.refresh_token()
         return retcode
 
