@@ -2,10 +2,14 @@
 Description=ACT Broadband Service
 Wants=network-online.target
 After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
 ExecStart=/usr/local/sbin/act_broadband.py -v -S
+Restart=on-failure
+RestartSec=60
 
 [Install]
 WantedBy=multi-user.target
