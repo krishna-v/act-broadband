@@ -112,6 +112,15 @@ class ACTConnection:
         plaintext = unpad(cipher.decrypt(cyphertext), AES.block_size)
         return plaintext.decode('utf-8')
 
+    def _load_cookies(self, cookies):
+        '''
+            Load cookies from a dict.
+            Don't do a dict copy as we may have other cookies set.
+        '''
+        for cookie in cookies:
+            self.cookies[cookie.name]= cookie.value
+            self._dprint(2, f"Cookie: {cookie.name} = {cookie.value}")
+
     def _scrape_homepage(self):
         '''
         extract info from the ACT portal home page.
@@ -122,9 +131,9 @@ class ACTConnection:
         self._dprint(1, f"{url}: Status {response.status_code}")
         if response.status_code == 200:
             retdata = response.text
-            for cookie in response.cookies:
-                self.cookies[cookie.name]= cookie.value
-                self._dprint(2, f"Cookie: {cookie.name} = {cookie.value}")
+            self._load_cookies(response.cookies)
+            if 'ClientIP' in response.headers:
+                self.cookies['remote'] = response.headers['ClientIP']
             p_match = re.search(r'<script src="(main-es2015.+?\.js)"', retdata)
             if p_match:
                 self._dprint(3, f"Found script {p_match.group(1)}")
@@ -137,6 +146,7 @@ class ACTConnection:
         response = requests.get(url, headers=self.headers)
         self._dprint(1, f"{url}: Status {response.status_code}")
         if response.status_code == 200:
+            self._load_cookies(response.cookies)
             retdata = response.text
             # p_match = re.search('this.iv="(.+?)"', retdata)
             p_match = re.search('this.firstAuto="(.+?)"', retdata)
@@ -185,17 +195,29 @@ class ACTConnection:
             else:
                 self._dprint(2, "Token expired. Ignoring.")
 
+    def _get_message_json(self):
+        '''
+            Get the messageNew.json from the site.
+            This seems to be required.
+        '''
+        url = f"{self.ACT_BASEURL}/assets/messageNew.json"
+        response = requests.get(url, headers=self.headers)
+        self._dprint(1, f"{url}: Status {response.status_code}")
+        # TODO: Do something if the response code isn't 200.
+
     def initialize(self):
         ''' do initialization functions '''
         self._load_conf()
+        wan_ip = ni.ifaddresses(self.get_conf('ACT_IF'))[ni.AF_INET][0]['addr']
+        self.rt_vars['ipaddr'] = wan_ip
         script = self._scrape_homepage()
         if script:
             self._scrape_script(script)
+        if 'remote' not in self.cookies:
+            self.cookies['remote'] = wan_ip
         self._load_token()
         self.rt_vars['b64user'] = self._encrypt(self.get_conf('USERID').encode('utf-8'))
         self.rt_vars['b64pass'] = self._encrypt(self.get_conf('PASSWORD').encode('utf-8'))
-        wan_ip = ni.ifaddresses(self.get_conf('ACT_IF'))[ni.AF_INET][0]['addr']
-        self.rt_vars['ipaddr'] = wan_ip
 
     def check_valid_user(self):
         '''
@@ -237,7 +259,8 @@ class ACTConnection:
             self._dprint(2, f"Data: {retdata}")
         return response.status_code
 
-    def authenticate(self):
+    # TODO: Not used anymore. Pending removal
+    def old_authenticate(self):
         ''' get a JWT token. This is required by some of the functions on the portal. '''
         url = f"{self.ACT_BASEURL}/v1/jwt/authenticate"
         plain_authkey = self.rt_vars['authkey']
@@ -258,6 +281,43 @@ class ACTConnection:
             output = jwt.decode(jwt_token, plain_authkey,
                         algorithms=["HS256", "HS384", "HS512"],
                         options={ "verify_signature": False })
+            self._dprint(2, output)
+            self.rt_vars['jwtToken'] = jwt_token
+            self.rt_vars['jwt_exp'] = output['exp']
+            with open(self.ACT_TOKENFILE, 'wb') as tokenfile:
+                tokenfile.write(jwt_token.encode('utf-8'))
+        return response.status_code
+
+    def check_status(self, refresh_token = False):
+        ''' this checks status and gets us a JWT token '''
+
+        if 'ectype' not in self.rt_vars:
+            self.connection_info()
+        url = f"{self.ACT_BASEURL}/v1/subscriberlogin/checkStatus"
+        req_headers = self.headers.copy()
+        if refresh_token:
+            req_headers['Authorization'] = f"Bearer {self.rt_vars['jwtToken']}"
+            req_headers['isRefreshToken'] = "true"
+        data = {
+            "ecType": f"{self.rt_vars['ectype']}",
+            "networkType": "ACT",
+            "remoteIP": f"{self.rt_vars['ipaddr']}",
+            "subscriberLoc": f"{self.rt_vars['city']}",
+        }
+        response = requests.post(url, data=json.dumps(data),
+                        cookies=self.cookies, headers=req_headers)
+        self._dprint(1, f"{url}: Status {response.status_code}")
+        if response.status_code == 200:
+            retdata = response.json()
+            retdata['accountNo'] = self._decrypt(retdata['accountNo'])
+            retdata['userName'] = self._decrypt(retdata['userName'])
+            print(retdata)
+            jwt_token = retdata['authToken']
+            output = jwt.decode(jwt_token, self.rt_vars['authkey'],
+                        algorithms=["HS256", "HS384", "HS512"],
+                        options={ "verify_signature": False })
+            
+            # output['custDetails'] = self._decrypt(output['custDetails'])
             self._dprint(2, output)
             self.rt_vars['jwtToken'] = jwt_token
             self.rt_vars['jwt_exp'] = output['exp']
@@ -297,7 +357,7 @@ class ACTConnection:
         expiry = self.rt_vars.get('jwt_exp', 0)
         retcode = 200
         if expiry < now + 2:
-            retcode =  self.authenticate()
+            retcode =  self.check_status()
         elif force_refresh or expiry < now + 30:
             retcode = self.refresh_token()
         return retcode
@@ -352,6 +412,25 @@ class ACTConnection:
             retdata['token'] = self._decrypt(retdata['token'])
             print(retdata)
         return response.status_code
+
+    def connection_info(self):
+        '''
+            get information about this connection
+            This is required to get other info
+        '''
+        url = f"{self.ACT_BASEURL}/ippool/connectionInfo"
+        data = { "location": f"self.rt_vars['ipaddr']" }
+        response = requests.post(url, data=json.dumps(data),
+                        cookies=self.cookies, headers=self.headers)
+        self._dprint(1, f"{url}: Status {response.status_code}")
+        if response.status_code == 200:
+            retdata = response.json()
+            self._dprint(1, retdata)
+            self.rt_vars['city'] = retdata['subscriberLoc']
+            self.rt_vars['location'] = retdata['locationCode']
+            self.rt_vars['ectype'] = retdata['ecType']
+            return retdata
+        return None
 
     def location_details(self, city):
         '''
@@ -434,6 +513,10 @@ def _main():
                     help='Be verbose. Repeat for even more verbosity (e.g. -vvv)')
     parser.add_argument('-c', '--check', action='store_true',
                     help='check if user is valid')
+    parser.add_argument('-C', '--conn', action='store_true',
+                    help='check connection info')
+    parser.add_argument('-s', '--status', action='store_true',
+                    help='check status')
     parser.add_argument('-l', '--login', action='store_true',
                     help='Log in to ACT Broadband account')
     parser.add_argument('-r', '--refresh', action='store_true',
@@ -455,6 +538,12 @@ def _main():
 
     if args.check:
         conn.check_valid_user()
+
+    if args.conn:
+        conn.connection_info()
+
+    if args.status:
+        conn.check_status()
 
     if args.login:
         conn.login_by_userid()
